@@ -1,28 +1,14 @@
-// ===================== FIREBASE CONFIGURATION =====================
-//
-// 1. Go to https://console.firebase.google.com
-// 2. Click "Add project" -> give it any name -> finish creating it
-//    (you can disable Google Analytics, you don't need it)
-// 3. In your project, click the "</>" (Web) icon to add a web app
-//    -> give it a nickname -> click "Register app"
-// 4. Firebase will show you a config object that looks like the one
-//    below. Copy YOUR values and paste them here, replacing the
-//    placeholders.
-// 5. In the left sidebar, go to "Build" -> "Realtime Database"
-//    -> click "Create Database" -> choose a location -> start in
-//    "Test mode" (you can lock it down later, see rules below).
-//
-// That's it! Once this file has your real config, the leaderboard
-// will automatically start working.
-
-// Import the functions you need from the SDKs you need
+// ===================== FIREBASE =====================
 import { initializeApp } from "firebase/app";
-import { getAnalytics } from "firebase/analytics";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
+import {
+  getDatabase,
+  ref,
+  push,
+  get,
+  query,
+  limitToLast
+} from "firebase/database";
 
-// Your web app's Firebase configuration
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
   apiKey: "AIzaSyAK4b4F3jm5ud-Ghf1Dfn_gNxv75aKqSLk",
   authDomain: "nigga--reviewer.firebaseapp.com",
@@ -33,26 +19,59 @@ const firebaseConfig = {
   measurementId: "G-NV5PLBX2CS"
 };
 
-// Initialize Firebase
 const app = initializeApp(firebaseConfig);
-const analytics = getAnalytics(app);
+const fbDb = getDatabase(app);
 
-// ===================== RECOMMENDED DATABASE RULES =====================
-//
-// By default, "Test mode" allows anyone to read/write anything for 30
-// days, then locks everything. For a class reviewer, paste these rules
-// into Realtime Database -> Rules tab so the leaderboard works forever
-// but people can't wipe the whole list:
-//
-// {
-//   "rules": {
-//     "leaderboard": {
-//       ".read": true,
-//       ".write": true,
-//       "$entry": {
-//         ".validate": "newData.hasChildren(['name','topic','mode','score','total','pct','date'])"
-//       }
-//     }
-//   }
-// }
+let fbAvailable = true;
+
+function submitToGlobalLeaderboard(entry) {
+  try {
+    push(ref(fbDb, "leaderboard"), entry);
+  } catch (e) {
+    console.error("Could not submit score", e);
+  }
+}
+
+async function loadGlobalLeaderboard(topic, callback) {
+  try {
+    const snapshot = await get(
+      query(ref(fbDb, "leaderboard"), limitToLast(500))
+    );
+
+    const entries = [];
+
+    snapshot.forEach(child => {
+      entries.push(child.val());
+    });
+
+    let filtered =
+      topic === "all"
+        ? entries
+        : entries.filter(e => e.topic === topic);
+
+    const best = {};
+
+    filtered.forEach(e => {
+      const key = `${e.name}_${e.topic}_${e.mode}`;
+
+      if (
+        !best[key] ||
+        e.pct > best[key].pct ||
+        (e.pct === best[key].pct &&
+          e.score > best[key].score)
+      ) {
+        best[key] = e;
+      }
+    });
+
+    const result = Object.values(best).sort(
+      (a, b) => b.pct - a.pct || b.score - a.score
+    );
+
+    callback(result);
+  } catch (err) {
+    console.error(err);
+    callback(null);
+  }
+}
 
