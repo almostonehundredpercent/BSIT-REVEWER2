@@ -673,3 +673,167 @@ function init() {
 }
 
 document.addEventListener('DOMContentLoaded', init);
+
+
+import {
+  db,
+  auth,
+  initAuth
+} from "./firebase.js";
+
+import {
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc,
+  increment,
+  collection,
+  addDoc,
+  serverTimestamp,
+  query,
+  where,
+  orderBy,
+  limit,
+  getDocs
+} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+
+/* =========================
+   INIT
+========================= */
+
+await initAuth();
+
+/* =========================
+   SAVE HIGH SCORE
+========================= */
+
+export async function saveHighScore(topic, score) {
+  const user = auth.currentUser;
+  if (!user) return;
+
+  const ref = doc(db, "users", user.uid);
+  const snap = await getDoc(ref);
+
+  if (!snap.exists()) {
+    await setDoc(ref, {
+      name: "Anonymous",
+      totalScore: score,
+      highestScores: {
+        [topic]: score
+      }
+    });
+  } else {
+    const data = snap.data();
+    const prev = data.highestScores?.[topic] || 0;
+
+    if (score > prev) {
+      await updateDoc(ref, {
+        [`highestScores.${topic}`]: score,
+        totalScore: increment(score - prev)
+      });
+    }
+  }
+}
+
+/* =========================
+   GLOBAL LEADERBOARD
+========================= */
+
+export async function submitLeaderboard(topic, score, mode) {
+  const user = auth.currentUser;
+  if (!user) return;
+
+  const userData = await getUserData(user.uid);
+
+  await addDoc(collection(db, "leaderboard"), {
+    uid: user.uid,
+    name: userData?.name || "Anonymous",
+    schoolId: userData?.schoolId || null,
+    topic,
+    score,
+    mode,
+    createdAt: serverTimestamp()
+  });
+}
+
+/* =========================
+   SCHOOL LEADERBOARD
+========================= */
+
+export async function getSchoolLeaderboard(topic = null) {
+  const user = auth.currentUser;
+  if (!user) return [];
+
+  const userData = await getUserData(user.uid);
+  const schoolId = userData?.schoolId;
+
+  if (!schoolId) return [];
+
+  let q;
+
+  if (topic) {
+    q = query(
+      collection(db, "leaderboard"),
+      where("schoolId", "==", schoolId),
+      where("topic", "==", topic),
+      orderBy("score", "desc"),
+      limit(50)
+    );
+  } else {
+    q = query(
+      collection(db, "leaderboard"),
+      where("schoolId", "==", schoolId),
+      orderBy("score", "desc"),
+      limit(50)
+    );
+  }
+
+  const snap = await getDocs(q);
+  return snap.docs.map(d => d.data());
+}
+
+/* =========================
+   FRIENDS LEADERBOARD
+========================= */
+
+export async function getFriendsLeaderboard() {
+  const user = auth.currentUser;
+  if (!user) return [];
+
+  const friendsSnap = await getDocs(
+    collection(db, "users", user.uid, "friends")
+  );
+
+  const friendIds = friendsSnap.docs.map(d => d.id);
+  if (friendIds.length === 0) return [];
+
+  const all = await getDocs(collection(db, "leaderboard"));
+
+  return all.docs
+    .map(d => d.data())
+    .filter(x => friendIds.includes(x.uid))
+    .sort((a, b) => b.score - a.score);
+}
+
+/* =========================
+   ADD FRIEND
+========================= */
+
+export async function addFriend(friendUid, friendName) {
+  const user = auth.currentUser;
+  if (!user) return;
+
+  await setDoc(doc(db, "users", user.uid, "friends", friendUid), {
+    name: friendName,
+    addedAt: serverTimestamp()
+  });
+}
+
+/* =========================
+   USER HELPER
+========================= */
+
+async function getUserData(uid) {
+  const snap = await getDoc(doc(db, "users", uid));
+  return snap.exists() ? snap.data() : null;
+}

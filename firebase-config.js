@@ -1,13 +1,7 @@
-// ===================== FIREBASE =====================
-import { initializeApp } from "firebase/app";
-import {
-  getDatabase,
-  ref,
-  push,
-  get,
-  query,
-  limitToLast
-} from "firebase/database";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-analytics.js";
+import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyAK4b4F3jm5ud-Ghf1Dfn_gNxv75aKqSLk",
@@ -19,59 +13,18 @@ const firebaseConfig = {
   measurementId: "G-NV5PLBX2CS"
 };
 
-const app = initializeApp(firebaseConfig);
-const fbDb = getDatabase(app);
+export const app = initializeApp(firebaseConfig);
+export const analytics = typeof window !== "undefined" ? getAnalytics(app) : null;
+export const auth = getAuth(app);
+export const db = getFirestore(app);
 
-let fbAvailable = true;
-
-function submitToGlobalLeaderboard(entry) {
-  try {
-    push(ref(fbDb, "leaderboard"), entry);
-  } catch (e) {
-    console.error("Could not submit score", e);
+/* Auto login */
+export async function initAuth() {
+  if (!auth.currentUser) {
+    await signInAnonymously(auth);
   }
 }
 
-async function loadGlobalLeaderboard(topic, callback) {
-  try {
-    const snapshot = await get(
-      query(ref(fbDb, "leaderboard"), limitToLast(500))
-    );
-
-    const entries = [];
-
-    snapshot.forEach(child => {
-      entries.push(child.val());
-    });
-
-    let filtered =
-      topic === "all"
-        ? entries
-        : entries.filter(e => e.topic === topic);
-
-    const best = {};
-
-    filtered.forEach(e => {
-      const key = `${e.name}_${e.topic}_${e.mode}`;
-
-      if (
-        !best[key] ||
-        e.pct > best[key].pct ||
-        (e.pct === best[key].pct &&
-          e.score > best[key].score)
-      ) {
-        best[key] = e;
-      }
-    });
-
-    const result = Object.values(best).sort(
-      (a, b) => b.pct - a.pct || b.score - a.score
-    );
-
-    callback(result);
-  } catch (err) {
-    console.error(err);
-    callback(null);
-  }
-}
-
+window.firebaseAuth = auth;
+window.firebaseDb = db;
+window.initAuth = initAuth;
