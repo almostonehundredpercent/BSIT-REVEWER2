@@ -24,7 +24,7 @@ let fbAvailable = false;
 function initFirebase() {
   try {
     if (typeof firebase === 'undefined') return;
-    if (!firebaseConfig || firebaseConfig.apiKey === 'YOUR_API_KEY') {
+    if (typeof firebaseConfig === 'undefined' || !firebaseConfig || firebaseConfig.apiKey === 'YOUR_API_KEY') {
       // Config not filled in yet — leaderboard stays local-only.
       return;
     }
@@ -76,6 +76,25 @@ function loadGlobalLeaderboard(topic, callback) {
 // ===================== UTILITIES =====================
 function $(id) { return document.getElementById(id); }
 
+// Safe localStorage wrapper — some browsers/contexts (file://, private
+// browsing, sandboxed iframes) throw when accessing localStorage at all.
+// In-memory fallback keeps the app working even if it isn't persisted.
+const memoryStore = {};
+const safeStorage = {
+  getItem(key) {
+    try { return localStorage.getItem(key); }
+    catch (e) { return memoryStore[key] !== undefined ? memoryStore[key] : null; }
+  },
+  setItem(key, value) {
+    try { localStorage.setItem(key, value); }
+    catch (e) { memoryStore[key] = value; }
+  },
+  removeItem(key) {
+    try { localStorage.removeItem(key); }
+    catch (e) { delete memoryStore[key]; }
+  }
+};
+
 function shuffleArray(arr) {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -98,7 +117,7 @@ function showScreen(id) {
 
 // ===================== THEME =====================
 function initTheme() {
-  const saved = localStorage.getItem(THEME_KEY);
+  const saved = safeStorage.getItem(THEME_KEY);
   const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
   const theme = saved || (prefersDark ? 'dark' : 'light');
   applyTheme(theme);
@@ -107,7 +126,7 @@ function initTheme() {
 function applyTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
   $('themeIcon').textContent = theme === 'dark' ? '☀️' : '🌙';
-  localStorage.setItem(THEME_KEY, theme);
+  safeStorage.setItem(THEME_KEY, theme);
 }
 
 function toggleTheme() {
@@ -118,7 +137,7 @@ function toggleTheme() {
 // ===================== HIGH SCORES =====================
 function getHighScores() {
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {};
+    return JSON.parse(safeStorage.getItem(STORAGE_KEY)) || {};
   } catch (e) {
     return {};
   }
@@ -134,7 +153,7 @@ function saveHighScore(topic, mode, score, total) {
     scores[key] = { topic, mode, score, total, pct, date: new Date().toISOString() };
     isNew = true;
   }
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(scores));
+  safeStorage.setItem(STORAGE_KEY, JSON.stringify(scores));
   return isNew;
 }
 
@@ -160,18 +179,18 @@ function renderHighScores() {
 
 function clearHighScores() {
   if (confirm('Clear all high scores? This cannot be undone.')) {
-    localStorage.removeItem(STORAGE_KEY);
+    safeStorage.removeItem(STORAGE_KEY);
     renderHighScores();
   }
 }
 
 // ===================== PLAYER NAME =====================
 function getPlayerName() {
-  return (localStorage.getItem(NAME_KEY) || '').trim();
+  return (safeStorage.getItem(NAME_KEY) || '').trim();
 }
 
 function setPlayerName(name) {
-  localStorage.setItem(NAME_KEY, name.trim());
+  safeStorage.setItem(NAME_KEY, name.trim());
 }
 
 // ===================== HOME SCREEN SETUP =====================
@@ -575,58 +594,82 @@ function quitToHome() {
 }
 
 // ===================== INIT =====================
+function safeRun(fn, label) {
+  try {
+    fn();
+  } catch (e) {
+    console.error(`Error during init step "${label}":`, e);
+  }
+}
+
 function init() {
-  initTheme();
-  initFirebase();
-  renderTopicGrid();
-  initModeCards();
-  initOrderToggle();
-  renderHighScores();
+  safeRun(initTheme, 'initTheme');
+  safeRun(initFirebase, 'initFirebase');
+  safeRun(renderTopicGrid, 'renderTopicGrid');
+  safeRun(initModeCards, 'initModeCards');
+  safeRun(initOrderToggle, 'initOrderToggle');
+  safeRun(renderHighScores, 'renderHighScores');
 
-  $('themeToggle').addEventListener('click', toggleTheme);
-  $('startBtn').addEventListener('click', startReview);
-  $('clearScores').addEventListener('click', clearHighScores);
+  safeRun(() => {
+    $('themeToggle').addEventListener('click', toggleTheme);
+    $('startBtn').addEventListener('click', startReview);
+    $('clearScores').addEventListener('click', clearHighScores);
+  }, 'core buttons');
 
-  // Player name
-  const nameInput = $('playerName');
-  nameInput.value = getPlayerName();
-  nameInput.addEventListener('input', () => setPlayerName(nameInput.value));
+  safeRun(() => {
+    // Player name
+    const nameInput = $('playerName');
+    nameInput.value = getPlayerName();
+    nameInput.addEventListener('input', () => setPlayerName(nameInput.value));
+  }, 'player name input');
 
-  // Global leaderboard
-  $('leaderboardBtn').addEventListener('click', openLeaderboard);
-  $('leaderboardBackBtn').addEventListener('click', () => showScreen('screen-home'));
+  safeRun(() => {
+    // Global leaderboard
+    $('leaderboardBtn').addEventListener('click', openLeaderboard);
+    $('leaderboardBackBtn').addEventListener('click', () => showScreen('screen-home'));
+  }, 'leaderboard buttons');
 
-  // Quiz screen
-  $('quitBtn').addEventListener('click', quitToHome);
-  $('nextBtn').addEventListener('click', nextQuestion);
+  safeRun(() => {
+    // Quiz screen
+    $('quitBtn').addEventListener('click', quitToHome);
+    $('nextBtn').addEventListener('click', nextQuestion);
+  }, 'quiz screen buttons');
 
-  // Results screen
-  $('retryBtn').addEventListener('click', startReview);
-  $('homeBtn').addEventListener('click', quitToHome);
-  $('reviewMissedBtn').addEventListener('click', renderMissedReview);
+  safeRun(() => {
+    // Results screen
+    $('retryBtn').addEventListener('click', startReview);
+    $('homeBtn').addEventListener('click', quitToHome);
+    $('reviewMissedBtn').addEventListener('click', renderMissedReview);
+  }, 'results screen buttons');
 
-  // Review screen
-  $('reviewBackBtn').addEventListener('click', () => showScreen('screen-results'));
-  $('reviewHomeBtn').addEventListener('click', quitToHome);
+  safeRun(() => {
+    // Review screen
+    $('reviewBackBtn').addEventListener('click', () => showScreen('screen-results'));
+    $('reviewHomeBtn').addEventListener('click', quitToHome);
+  }, 'review screen buttons');
 
-  // Flashcard screen
-  $('flashQuitBtn').addEventListener('click', quitToHome);
-  $('flashcard').addEventListener('click', flipFlashcard);
-  $('flashNext').addEventListener('click', nextFlashcard);
-  $('flashPrev').addEventListener('click', prevFlashcard);
-  $('flashShuffleBtn').addEventListener('click', shuffleFlashcards);
+  safeRun(() => {
+    // Flashcard screen
+    $('flashQuitBtn').addEventListener('click', quitToHome);
+    $('flashcard').addEventListener('click', flipFlashcard);
+    $('flashNext').addEventListener('click', nextFlashcard);
+    $('flashPrev').addEventListener('click', prevFlashcard);
+    $('flashShuffleBtn').addEventListener('click', shuffleFlashcards);
+  }, 'flashcard screen buttons');
 
-  // keyboard support for quiz (1-4, enter for next)
-  document.addEventListener('keydown', (e) => {
-    if (!$('screen-quiz').classList.contains('active')) return;
-    if (['1', '2', '3', '4'].includes(e.key) && !state.answered) {
-      const idx = parseInt(e.key, 10) - 1;
-      const btn = document.querySelector(`.ch[data-idx="${idx}"]`);
-      if (btn) selectAnswer(idx);
-    } else if (e.key === 'Enter' && state.answered && state.mode !== 'timed') {
-      nextQuestion();
-    }
-  });
+  safeRun(() => {
+    // keyboard support for quiz (1-4, enter for next)
+    document.addEventListener('keydown', (e) => {
+      if (!$('screen-quiz').classList.contains('active')) return;
+      if (['1', '2', '3', '4'].includes(e.key) && !state.answered) {
+        const idx = parseInt(e.key, 10) - 1;
+        const btn = document.querySelector(`.ch[data-idx="${idx}"]`);
+        if (btn) selectAnswer(idx);
+      } else if (e.key === 'Enter' && state.answered && state.mode !== 'timed') {
+        nextQuestion();
+      }
+    });
+  }, 'keyboard shortcuts');
 }
 
 document.addEventListener('DOMContentLoaded', init);
