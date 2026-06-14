@@ -183,6 +183,19 @@
     </div>
   </section>
 
+  <script type="module">
+import { saveHighScore, submitLeaderboard } from "./app.js";
+
+document.getElementById("startBtn").addEventListener("click", async () => {
+  const score = 10;
+  const topic = "javascript";
+  const mode = "quiz";
+
+  await saveHighScore(topic, score);
+  await submitLeaderboard(topic, score, mode);
+});
+</script>
+
   <footer class="site-footer">
     <p>2026 BSIT Proficiency Exam Reviewer</p>
     <p class="small">Made for review purposes. Good luck on your exam! 🍀</p>
